@@ -3,14 +3,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { callAIAgent, extractText } from '@/lib/aiAgent'
 import { cn } from '@/lib/utils'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import {
   HiOutlinePlay,
@@ -32,10 +29,11 @@ import {
   HiTrophy,
   HiExclamationTriangle,
   HiInformationCircle,
+  HiLink,
+  HiArrowRightOnRectangle,
+  HiGlobeAlt,
 } from 'react-icons/hi2'
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -53,14 +51,20 @@ const FAIRNESS_AGENT_ID = '699bfdcc445882528cc4bd5a'
 const MATCH_INSIGHT_AGENT_ID = '699bfdcc4781b21fa6458747'
 
 // ============================================================
+// SOLANA DEVNET CONFIG
+// ============================================================
+const SOLANA_DEVNET_RPC = 'https://api.devnet.solana.com'
+const LAMPORTS_PER_SOL = 1_000_000_000
+
+// ============================================================
 // TYPES
 // ============================================================
 type TabId = 'play' | 'dashboard' | 'history' | 'wallet'
 type MatchOutcome = 'Win' | 'Loss' | 'Forfeit'
 type MatchState = 'idle' | 'waiting' | 'matched' | 'choosing' | 'flipping' | 'result'
 type CoinSide = 'Heads' | 'Tails'
-type TxnType = 'Deposit' | 'Withdrawal' | 'Wager Lock' | 'Payout' | 'Fee'
-type TxnStatus = 'Confirmed' | 'Pending'
+type TxnType = 'Deposit' | 'Withdrawal' | 'Wager Lock' | 'Payout' | 'Fee' | 'Airdrop'
+type TxnStatus = 'Confirmed' | 'Pending' | 'Failed'
 
 interface MatchRecord {
   id: string
@@ -74,6 +78,7 @@ interface MatchRecord {
   commitHash: string
   nonce: string
   streak: number
+  txSignature?: string
 }
 
 interface Transaction {
@@ -83,6 +88,7 @@ interface Transaction {
   status: TxnStatus
   timestamp: string
   description: string
+  signature?: string
 }
 
 interface ChatMessage {
@@ -93,73 +99,32 @@ interface ChatMessage {
 }
 
 // ============================================================
-// MOCK DATA
+// PHANTOM WALLET TYPES
 // ============================================================
-const MOCK_WALLET = '7xKp...F3nR'
-const MOCK_FULL_WALLET = '7xKpQz8vLm3NdR4tW5yB9cE1aH6gJ2kS0fU8iO4pF3nR'
-
-function generateMockMatches(): MatchRecord[] {
-  const opponents = [
-    '3mRt...V8kL', '9pWq...N2xD', '5hGs...T7bJ', '1nCf...K4rQ',
-    '8dYa...P6wM', '2jBe...S9uH', '6vXi...L0cA', '4qFo...W3zE',
-    '0kTl...R5gN', '7sDm...U1yC', '3bPh...X8jF', '5wAn...Q2tK',
-  ]
-  const tiers = [1, 2, 5, 10, 2, 1, 5, 2, 10, 1, 5, 2]
-  const outcomes: MatchOutcome[] = ['Win', 'Loss', 'Win', 'Win', 'Loss', 'Win', 'Forfeit', 'Win', 'Loss', 'Win', 'Win', 'Loss']
-  const sides: CoinSide[] = ['Heads', 'Tails', 'Heads', 'Heads', 'Tails', 'Heads', 'Tails', 'Heads', 'Tails', 'Heads', 'Tails', 'Heads']
-  const results: CoinSide[] = ['Heads', 'Heads', 'Heads', 'Heads', 'Heads', 'Tails', 'Tails', 'Heads', 'Heads', 'Heads', 'Tails', 'Tails']
-
-  return opponents.map((opp, i) => ({
-    id: `match-${i + 1}`,
-    opponent: opp,
-    wager: tiers[i],
-    outcome: outcomes[i],
-    timestamp: new Date(Date.now() - (i * 3600000 + i * 900000)).toISOString(),
-    tier: tiers[i],
-    playerChoice: sides[i],
-    result: results[i],
-    commitHash: `0x${Math.random().toString(16).slice(2, 18)}${Math.random().toString(16).slice(2, 18)}`,
-    nonce: `${Math.floor(Math.random() * 999999)}`,
-    streak: i < 4 ? 4 - i : 0,
-  }))
+interface PhantomProvider {
+  isPhantom?: boolean
+  publicKey: { toString: () => string; toBytes: () => Uint8Array } | null
+  connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString: () => string } }>
+  disconnect: () => Promise<void>
+  signTransaction: (tx: any) => Promise<any>
+  signAllTransactions: (txs: any[]) => Promise<any[]>
+  signMessage: (msg: Uint8Array) => Promise<{ signature: Uint8Array }>
+  on: (event: string, handler: (...args: any[]) => void) => void
+  off: (event: string, handler: (...args: any[]) => void) => void
 }
 
-function generateMockTransactions(): Transaction[] {
-  return [
-    { id: 'tx-1', type: 'Deposit', amount: 20, status: 'Confirmed', timestamp: new Date(Date.now() - 86400000).toISOString(), description: 'Initial deposit' },
-    { id: 'tx-2', type: 'Wager Lock', amount: -5, status: 'Confirmed', timestamp: new Date(Date.now() - 80000000).toISOString(), description: '5 SOL tier match' },
-    { id: 'tx-3', type: 'Payout', amount: 9.75, status: 'Confirmed', timestamp: new Date(Date.now() - 79000000).toISOString(), description: 'Won 5 SOL match (2.5% fee)' },
-    { id: 'tx-4', type: 'Wager Lock', amount: -2, status: 'Confirmed', timestamp: new Date(Date.now() - 60000000).toISOString(), description: '2 SOL tier match' },
-    { id: 'tx-5', type: 'Payout', amount: 3.9, status: 'Confirmed', timestamp: new Date(Date.now() - 59000000).toISOString(), description: 'Won 2 SOL match (2.5% fee)' },
-    { id: 'tx-6', type: 'Wager Lock', amount: -10, status: 'Confirmed', timestamp: new Date(Date.now() - 40000000).toISOString(), description: '10 SOL tier match' },
-    { id: 'tx-7', type: 'Payout', amount: -10, status: 'Confirmed', timestamp: new Date(Date.now() - 39000000).toISOString(), description: 'Lost 10 SOL match' },
-    { id: 'tx-8', type: 'Deposit', amount: 5, status: 'Confirmed', timestamp: new Date(Date.now() - 20000000).toISOString(), description: 'Additional deposit' },
-    { id: 'tx-9', type: 'Withdrawal', amount: -3, status: 'Pending', timestamp: new Date(Date.now() - 3600000).toISOString(), description: 'Partial withdrawal' },
-  ]
-}
-
-function generateChartData() {
-  return [
-    { match: '1', earnings: 0.95 },
-    { match: '2', earnings: -2 },
-    { match: '3', earnings: 4.75 },
-    { match: '4', earnings: 4.75 + 1.95 },
-    { match: '5', earnings: 4.75 + 1.95 - 5 },
-    { match: '6', earnings: 4.75 + 1.95 - 5 + 0.95 },
-    { match: '7', earnings: 4.75 + 1.95 - 5 + 0.95 },
-    { match: '8', earnings: 4.75 + 1.95 - 5 + 0.95 + 4.75 },
-    { match: '9', earnings: 4.75 + 1.95 - 5 + 0.95 + 4.75 - 10 },
-    { match: '10', earnings: 4.75 + 1.95 - 5 + 0.95 + 4.75 - 10 + 0.95 },
-    { match: '11', earnings: 4.75 + 1.95 - 5 + 0.95 + 4.75 - 10 + 0.95 + 4.75 },
-    { match: '12', earnings: 4.75 + 1.95 - 5 + 0.95 + 4.75 - 10 + 0.95 + 4.75 - 2 },
-  ]
+declare global {
+  interface Window {
+    solana?: PhantomProvider
+    phantom?: { solana?: PhantomProvider }
+  }
 }
 
 // ============================================================
 // HELPERS
 // ============================================================
 function truncateAddress(addr: string): string {
-  if (addr.length <= 10) return addr
+  if (!addr || addr.length <= 10) return addr || ''
   return `${addr.slice(0, 4)}...${addr.slice(-4)}`
 }
 
@@ -206,6 +171,95 @@ function formatInline(text: string) {
   )
 }
 
+// Generate a simulated commit hash using crypto
+function generateCommitHash(choice: string, nonce: string): string {
+  const data = `${choice}:${nonce}`
+  let hash = 0
+  for (let i = 0; i < data.length; i++) {
+    const char = data.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash
+  }
+  return '0x' + Math.abs(hash).toString(16).padStart(16, '0') + Math.random().toString(16).slice(2, 18)
+}
+
+// ============================================================
+// SOLANA RPC HELPERS (direct fetch, no SDK dependency issues)
+// ============================================================
+async function getBalance(publicKeyStr: string): Promise<number> {
+  const response = await fetch(SOLANA_DEVNET_RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'getBalance',
+      params: [publicKeyStr],
+    }),
+  })
+  const data = await response.json()
+  if (data.result?.value !== undefined) {
+    return data.result.value / LAMPORTS_PER_SOL
+  }
+  throw new Error(data.error?.message || 'Failed to fetch balance')
+}
+
+async function requestAirdrop(publicKeyStr: string, solAmount: number): Promise<string> {
+  const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL)
+  const response = await fetch(SOLANA_DEVNET_RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'requestAirdrop',
+      params: [publicKeyStr, lamports],
+    }),
+  })
+  const data = await response.json()
+  if (data.result) {
+    return data.result
+  }
+  throw new Error(data.error?.message || 'Airdrop failed')
+}
+
+async function confirmTransaction(signature: string, maxRetries = 30): Promise<boolean> {
+  for (let i = 0; i < maxRetries; i++) {
+    await new Promise(r => setTimeout(r, 2000))
+    const response = await fetch(SOLANA_DEVNET_RPC, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'getSignatureStatuses',
+        params: [[signature], { searchTransactionHistory: true }],
+      }),
+    })
+    const data = await response.json()
+    const status = data.result?.value?.[0]
+    if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
+      return !status.err
+    }
+  }
+  return false
+}
+
+async function getRecentTransactions(publicKeyStr: string, limit = 10): Promise<any[]> {
+  const response = await fetch(SOLANA_DEVNET_RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'getSignaturesForAddress',
+      params: [publicKeyStr, { limit }],
+    }),
+  })
+  const data = await response.json()
+  return Array.isArray(data.result) ? data.result : []
+}
+
 // ============================================================
 // NEON STYLE CONSTANTS
 // ============================================================
@@ -249,7 +303,6 @@ class ErrorBoundary extends React.Component<
 // ============================================================
 // SUB COMPONENTS
 // ============================================================
-
 function NeonSpinner({ size = 40 }: { size?: number }) {
   return (
     <div className="flex items-center justify-center">
@@ -310,6 +363,13 @@ function TxnStatusBadge({ status }: { status: TxnStatus }) {
     return (
       <Badge className="text-xs" style={{ background: 'hsl(120 100% 50% / 0.15)', color: 'hsl(120 100% 60%)', border: '1px solid hsl(120 100% 50% / 0.3)' }}>
         <HiCheck className="w-3 h-3 mr-1" /> Confirmed
+      </Badge>
+    )
+  }
+  if (status === 'Failed') {
+    return (
+      <Badge className="text-xs" style={{ background: 'hsl(0 100% 55% / 0.15)', color: 'hsl(0 100% 65%)', border: '1px solid hsl(0 100% 55% / 0.3)' }}>
+        <HiXMark className="w-3 h-3 mr-1" /> Failed
       </Badge>
     )
   }
@@ -398,13 +458,22 @@ export default function Page() {
   // Tab navigation
   const [activeTab, setActiveTab] = useState<TabId>('play')
 
-  // Sample data toggle
-  const [showSample, setShowSample] = useState(false)
-
-  // Wallet state
+  // ==========================================
+  // PHANTOM WALLET STATE (REAL SOLANA DEVNET)
+  // ==========================================
+  const [phantomProvider, setPhantomProvider] = useState<PhantomProvider | null>(null)
   const [walletConnected, setWalletConnected] = useState(false)
-  const [walletBalance, setWalletBalance] = useState(42.5)
+  const [walletAddress, setWalletAddress] = useState('')
+  const [walletBalance, setWalletBalance] = useState(0)
   const [escrowBalance, setEscrowBalance] = useState(0)
+  const [isPhantomInstalled, setIsPhantomInstalled] = useState(false)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+  const [connectionError, setConnectionError] = useState('')
+  const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking')
+
+  // Airdrop state
+  const [airdropLoading, setAirdropLoading] = useState(false)
+  const [airdropMessage, setAirdropMessage] = useState('')
 
   // Play state
   const [selectedTier, setSelectedTier] = useState<number | null>(null)
@@ -422,6 +491,8 @@ export default function Page() {
   const [depositAmount, setDepositAmount] = useState('')
   const [showWithdraw, setShowWithdraw] = useState(false)
   const [withdrawAmount, setWithdrawAmount] = useState('')
+  const [depositLoading, setDepositLoading] = useState(false)
+  const [withdrawLoading, setWithdrawLoading] = useState(false)
 
   // Match history
   const [matchHistory, setMatchHistory] = useState<MatchRecord[]>([])
@@ -457,23 +528,113 @@ export default function Page() {
   const [chatError, setChatError] = useState('')
 
   // --------------------------------------------------------
-  // SAMPLE DATA EFFECT
+  // DETECT PHANTOM WALLET
   // --------------------------------------------------------
   useEffect(() => {
-    if (showSample) {
-      setWalletConnected(true)
-      setEscrowBalance(18.35)
-      setMatchHistory(generateMockMatches())
-      setTransactions(generateMockTransactions())
-      setChartData(generateChartData())
-    } else {
-      setMatchHistory([])
-      setTransactions([])
-      setChartData([])
-    }
-  }, [showSample])
+    const checkPhantom = () => {
+      const provider = window?.phantom?.solana || window?.solana
+      if (provider?.isPhantom) {
+        setPhantomProvider(provider)
+        setIsPhantomInstalled(true)
 
-  // scroll chat
+        // Check if already connected
+        if (provider.publicKey) {
+          setWalletConnected(true)
+          setWalletAddress(provider.publicKey.toString())
+        }
+
+        // Listen for account changes
+        provider.on('accountChanged', (publicKey: any) => {
+          if (publicKey) {
+            setWalletAddress(publicKey.toString())
+          } else {
+            setWalletConnected(false)
+            setWalletAddress('')
+            setWalletBalance(0)
+          }
+        })
+
+        provider.on('disconnect', () => {
+          setWalletConnected(false)
+          setWalletAddress('')
+          setWalletBalance(0)
+        })
+      }
+    }
+
+    // Phantom injects after DOM load
+    if (typeof window !== 'undefined') {
+      if (window?.phantom?.solana || window?.solana) {
+        checkPhantom()
+      } else {
+        // Wait for injection
+        const timer = setTimeout(checkPhantom, 500)
+        return () => clearTimeout(timer)
+      }
+    }
+  }, [])
+
+  // --------------------------------------------------------
+  // CHECK DEVNET CONNECTION
+  // --------------------------------------------------------
+  useEffect(() => {
+    const checkNetwork = async () => {
+      try {
+        setNetworkStatus('checking')
+        const response = await fetch(SOLANA_DEVNET_RPC, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getHealth' }),
+        })
+        const data = await response.json()
+        setNetworkStatus(data.result === 'ok' ? 'connected' : 'disconnected')
+      } catch {
+        setNetworkStatus('disconnected')
+      }
+    }
+    checkNetwork()
+    const interval = setInterval(checkNetwork, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // --------------------------------------------------------
+  // FETCH BALANCE WHEN WALLET CONNECTED
+  // --------------------------------------------------------
+  const fetchBalance = useCallback(async () => {
+    if (!walletAddress) return
+    setBalanceLoading(true)
+    try {
+      const bal = await getBalance(walletAddress)
+      setWalletBalance(bal)
+    } catch (err) {
+      console.error('Balance fetch error:', err)
+    } finally {
+      setBalanceLoading(false)
+    }
+  }, [walletAddress])
+
+  useEffect(() => {
+    if (walletConnected && walletAddress) {
+      fetchBalance()
+      const interval = setInterval(fetchBalance, 15000)
+      return () => clearInterval(interval)
+    }
+  }, [walletConnected, walletAddress, fetchBalance])
+
+  // Update chart data when match history changes
+  useEffect(() => {
+    if (matchHistory.length > 0) {
+      let cumulative = 0
+      const data = matchHistory.slice().reverse().map((m, i) => {
+        if (m.outcome === 'Win') cumulative += m.wager * 0.975
+        else if (m.outcome === 'Loss') cumulative -= m.wager
+        return { match: `${i + 1}`, earnings: parseFloat(cumulative.toFixed(3)) }
+      })
+      setChartData(data)
+    }
+  }, [matchHistory])
+
+  // Scroll chat
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight
@@ -481,57 +642,129 @@ export default function Page() {
   }, [chatMessages])
 
   // --------------------------------------------------------
-  // WALLET CONNECT (SIMULATED)
+  // CONNECT PHANTOM WALLET
   // --------------------------------------------------------
-  const connectWallet = useCallback(() => {
-    setWalletConnected(true)
-  }, [])
+  const connectWallet = useCallback(async () => {
+    setConnectionError('')
+    if (!isPhantomInstalled || !phantomProvider) {
+      setConnectionError('Phantom wallet not found. Please install it from phantom.app')
+      return
+    }
+    try {
+      const response = await phantomProvider.connect()
+      setWalletConnected(true)
+      setWalletAddress(response.publicKey.toString())
+    } catch (err: any) {
+      setConnectionError(err?.message || 'Failed to connect wallet')
+    }
+  }, [isPhantomInstalled, phantomProvider])
+
+  const disconnectWallet = useCallback(async () => {
+    if (phantomProvider) {
+      try {
+        await phantomProvider.disconnect()
+      } catch {}
+    }
+    setWalletConnected(false)
+    setWalletAddress('')
+    setWalletBalance(0)
+    setEscrowBalance(0)
+  }, [phantomProvider])
 
   // --------------------------------------------------------
-  // DEPOSIT / WITHDRAW
+  // AIRDROP (DEVNET FAUCET)
   // --------------------------------------------------------
-  const handleDeposit = useCallback(() => {
+  const handleAirdrop = useCallback(async (amount: number = 1) => {
+    if (!walletAddress) return
+    setAirdropLoading(true)
+    setAirdropMessage('')
+    try {
+      const sig = await requestAirdrop(walletAddress, amount)
+      setAirdropMessage(`Airdrop requested! Confirming...`)
+      setTransactions(prev => [{
+        id: `tx-airdrop-${Date.now()}`,
+        type: 'Airdrop' as TxnType,
+        amount,
+        status: 'Pending' as TxnStatus,
+        timestamp: new Date().toISOString(),
+        description: `Devnet airdrop ${amount} SOL`,
+        signature: sig,
+      }, ...prev])
+
+      const confirmed = await confirmTransaction(sig)
+      if (confirmed) {
+        setAirdropMessage(`Airdrop of ${amount} SOL confirmed!`)
+        setTransactions(prev => prev.map(t =>
+          t.signature === sig ? { ...t, status: 'Confirmed' as TxnStatus } : t
+        ))
+        await fetchBalance()
+      } else {
+        setAirdropMessage('Airdrop confirmation timed out. Balance may update shortly.')
+        setTransactions(prev => prev.map(t =>
+          t.signature === sig ? { ...t, status: 'Failed' as TxnStatus } : t
+        ))
+      }
+    } catch (err: any) {
+      setAirdropMessage(err?.message?.includes('429')
+        ? 'Rate limited. Wait a moment and try again.'
+        : `Airdrop failed: ${err?.message || 'Unknown error'}`)
+    } finally {
+      setAirdropLoading(false)
+      setTimeout(() => setAirdropMessage(''), 8000)
+    }
+  }, [walletAddress, fetchBalance])
+
+  // --------------------------------------------------------
+  // DEPOSIT / WITHDRAW (Simulated escrow - real balance tracking)
+  // --------------------------------------------------------
+  const handleDeposit = useCallback(async () => {
     const amt = parseFloat(depositAmount)
     if (isNaN(amt) || amt <= 0 || amt > walletBalance) return
-    setWalletBalance((prev) => prev - amt)
-    setEscrowBalance((prev) => prev + amt)
-    setTransactions((prev) => [
-      {
+    setDepositLoading(true)
+    try {
+      // In a production app, this would be an on-chain transfer to an escrow PDA
+      // For devnet demo, we simulate the escrow locally while tracking real wallet balance
+      setEscrowBalance(prev => prev + amt)
+      setWalletBalance(prev => prev - amt)
+      setTransactions(prev => [{
         id: `tx-${Date.now()}`,
         type: 'Deposit',
         amount: amt,
         status: 'Confirmed',
         timestamp: new Date().toISOString(),
-        description: `Deposited ${amt} SOL`,
-      },
-      ...prev,
-    ])
-    setDepositAmount('')
-    setShowDeposit(false)
+        description: `Deposited ${amt} SOL to escrow`,
+      }, ...prev])
+      setDepositAmount('')
+      setShowDeposit(false)
+    } finally {
+      setDepositLoading(false)
+    }
   }, [depositAmount, walletBalance])
 
-  const handleWithdraw = useCallback(() => {
+  const handleWithdraw = useCallback(async () => {
     const amt = parseFloat(withdrawAmount)
     if (isNaN(amt) || amt <= 0 || amt > escrowBalance) return
-    setEscrowBalance((prev) => prev - amt)
-    setWalletBalance((prev) => prev + amt)
-    setTransactions((prev) => [
-      {
+    setWithdrawLoading(true)
+    try {
+      setEscrowBalance(prev => prev - amt)
+      setWalletBalance(prev => prev + amt)
+      setTransactions(prev => [{
         id: `tx-${Date.now()}`,
         type: 'Withdrawal',
         amount: -amt,
-        status: 'Pending',
+        status: 'Confirmed',
         timestamp: new Date().toISOString(),
-        description: `Withdrew ${amt} SOL`,
-      },
-      ...prev,
-    ])
-    setWithdrawAmount('')
-    setShowWithdraw(false)
+        description: `Withdrew ${amt} SOL from escrow`,
+      }, ...prev])
+      setWithdrawAmount('')
+      setShowWithdraw(false)
+    } finally {
+      setWithdrawLoading(false)
+    }
   }, [withdrawAmount, escrowBalance])
 
   // --------------------------------------------------------
-  // GAMEPLAY SIMULATION
+  // GAMEPLAY SIMULATION (Commit-Reveal Pattern)
   // --------------------------------------------------------
   const currentWager = useMemo(() => {
     if (selectedTier !== null) return selectedTier
@@ -545,7 +778,7 @@ export default function Page() {
       return
     }
     if (currentWager > escrowBalance) {
-      setPlayError('Insufficient escrow balance')
+      setPlayError('Insufficient escrow balance. Deposit SOL first.')
       return
     }
     setPlayError('')
@@ -554,8 +787,11 @@ export default function Page() {
     setFairnessError('')
     const waitTime = 3000 + Math.random() * 2000
     setTimeout(() => {
-      const randAddr = `${Math.random().toString(36).slice(2, 6)}...${Math.random().toString(36).slice(2, 6)}`
-      setOpponent(randAddr)
+      // Generate a fake devnet address as opponent
+      const chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+      let addr = ''
+      for (let i = 0; i < 44; i++) addr += chars[Math.floor(Math.random() * chars.length)]
+      setOpponent(addr)
       setMatchState('matched')
     }, waitTime)
   }, [currentWager, escrowBalance])
@@ -563,10 +799,9 @@ export default function Page() {
   const chooseAndFlip = useCallback((choice: CoinSide) => {
     setPlayerChoice(choice)
     setMatchState('flipping')
-    // Start reveal timer
     setRevealTimer(30)
     revealIntervalRef.current = setInterval(() => {
-      setRevealTimer((prev) => {
+      setRevealTimer(prev => {
         if (prev <= 1) {
           if (revealIntervalRef.current) clearInterval(revealIntervalRef.current)
           return 0
@@ -575,7 +810,9 @@ export default function Page() {
       })
     }, 1000)
 
-    // Flip after 2.5s
+    const nonce = `${Math.floor(Math.random() * 999999)}`
+    const commitHash = generateCommitHash(choice, nonce)
+
     setTimeout(() => {
       if (revealIntervalRef.current) clearInterval(revealIntervalRef.current)
       const coinResult: CoinSide = Math.random() > 0.5 ? 'Heads' : 'Tails'
@@ -585,61 +822,53 @@ export default function Page() {
       setMatchOutcome(outcome)
       setMatchState('result')
 
-      // Update balances
       if (won) {
         const payout = currentWager * 2 * 0.975
-        setEscrowBalance((prev) => prev - currentWager + payout)
-        setTransactions((prev) => [
-          {
-            id: `tx-${Date.now()}`,
-            type: 'Payout',
-            amount: payout,
-            status: 'Confirmed',
-            timestamp: new Date().toISOString(),
-            description: `Won ${currentWager} SOL match (2.5% fee)`,
-          },
-          {
-            id: `tx-${Date.now() - 1}`,
-            type: 'Wager Lock',
-            amount: -currentWager,
-            status: 'Confirmed',
-            timestamp: new Date().toISOString(),
-            description: `${currentWager} SOL tier match`,
-          },
-          ...prev,
-        ])
+        setEscrowBalance(prev => prev - currentWager + payout)
+        setTransactions(prev => [{
+          id: `tx-${Date.now()}`,
+          type: 'Payout',
+          amount: payout,
+          status: 'Confirmed',
+          timestamp: new Date().toISOString(),
+          description: `Won ${currentWager} SOL match (2.5% fee)`,
+        }, {
+          id: `tx-${Date.now() - 1}`,
+          type: 'Wager Lock',
+          amount: -currentWager,
+          status: 'Confirmed',
+          timestamp: new Date().toISOString(),
+          description: `${currentWager} SOL tier match`,
+        }, ...prev])
       } else {
-        setEscrowBalance((prev) => prev - currentWager)
-        setTransactions((prev) => [
-          {
-            id: `tx-${Date.now()}`,
-            type: 'Wager Lock',
-            amount: -currentWager,
-            status: 'Confirmed',
-            timestamp: new Date().toISOString(),
-            description: `Lost ${currentWager} SOL match`,
-          },
-          ...prev,
-        ])
+        setEscrowBalance(prev => prev - currentWager)
+        setTransactions(prev => [{
+          id: `tx-${Date.now()}`,
+          type: 'Wager Lock',
+          amount: -currentWager,
+          status: 'Confirmed',
+          timestamp: new Date().toISOString(),
+          description: `Lost ${currentWager} SOL match`,
+        }, ...prev])
       }
 
-      // Add to history
+      const wins = matchHistory.filter(m => m.outcome === 'Win').length
       const newMatch: MatchRecord = {
         id: `match-${Date.now()}`,
-        opponent: opponent,
+        opponent: truncateAddress(opponent),
         wager: currentWager,
         outcome,
         timestamp: new Date().toISOString(),
         tier: currentWager,
         playerChoice: choice,
         result: coinResult,
-        commitHash: `0x${Math.random().toString(16).slice(2, 18)}${Math.random().toString(16).slice(2, 18)}`,
-        nonce: `${Math.floor(Math.random() * 999999)}`,
-        streak: won ? 1 : 0,
+        commitHash,
+        nonce,
+        streak: won ? wins + 1 : 0,
       }
-      setMatchHistory((prev) => [newMatch, ...prev])
+      setMatchHistory(prev => [newMatch, ...prev])
     }, 2500)
-  }, [currentWager, opponent])
+  }, [currentWager, opponent, matchHistory])
 
   const resetMatch = useCallback(() => {
     setMatchState('idle')
@@ -662,7 +891,7 @@ export default function Page() {
     setFairnessError('')
     setActiveAgentId(FAIRNESS_AGENT_ID)
     try {
-      const message = `Verify fairness for this coin flip duel: Commit hash: ${lastMatch.commitHash}, Reveal value: ${lastMatch.result}, Nonce: ${lastMatch.nonce}, Player chose: ${lastMatch.playerChoice}, Result: ${lastMatch.result}, Outcome: ${lastMatch.outcome}, Wager: ${lastMatch.wager} SOL`
+      const message = `Verify fairness for this coin flip duel on Solana Devnet: Commit hash: ${lastMatch.commitHash}, Reveal value: ${lastMatch.result}, Nonce: ${lastMatch.nonce}, Player chose: ${lastMatch.playerChoice}, Result: ${lastMatch.result}, Outcome: ${lastMatch.outcome}, Wager: ${lastMatch.wager} SOL, Player wallet: ${truncateAddress(walletAddress)}, Opponent wallet: ${lastMatch.opponent}`
       const result = await callAIAgent(message, FAIRNESS_AGENT_ID)
       if (result.success) {
         const explanation = result.response?.result?.explanation || extractText(result.response) || 'No explanation available.'
@@ -671,40 +900,40 @@ export default function Page() {
       } else {
         setFairnessError(result.error || 'Failed to verify fairness')
       }
-    } catch (err) {
+    } catch {
       setFairnessError('Network error verifying fairness')
     } finally {
       setFairnessLoading(false)
       setActiveAgentId(null)
     }
-  }, [matchHistory])
+  }, [matchHistory, walletAddress])
 
   const getMatchInsight = useCallback(async (matchId: string) => {
-    const match = matchHistory.find((m) => m.id === matchId)
+    const match = matchHistory.find(m => m.id === matchId)
     if (!match) return
-    setInsightMap((prev) => ({ ...prev, [matchId]: { summary: '', quip: '', loading: true } }))
+    setInsightMap(prev => ({ ...prev, [matchId]: { summary: '', quip: '', loading: true } }))
     setInsightError('')
     setActiveAgentId(MATCH_INSIGHT_AGENT_ID)
     try {
-      const wins = matchHistory.filter((m) => m.outcome === 'Win').length
-      const losses = matchHistory.filter((m) => m.outcome === 'Loss').length
-      const matchContext = `Match data: Wager ${match.wager} SOL, Outcome: ${match.outcome}, Opponent: ${match.opponent}, Player streak: ${match.streak} wins, Total record: ${wins}W-${losses}L`
+      const wins = matchHistory.filter(m => m.outcome === 'Win').length
+      const losses = matchHistory.filter(m => m.outcome === 'Loss').length
+      const matchContext = `Match data: Wager ${match.wager} SOL on Solana Devnet, Outcome: ${match.outcome}, Opponent: ${match.opponent}, Player streak: ${match.streak} wins, Total record: ${wins}W-${losses}L, Player wallet: ${truncateAddress(walletAddress)}`
       const result = await callAIAgent(matchContext, MATCH_INSIGHT_AGENT_ID)
       if (result.success) {
         const summary = result.response?.result?.summary || extractText(result.response) || 'No insight available.'
         const quip = result.response?.result?.quip || ''
-        setInsightMap((prev) => ({ ...prev, [matchId]: { summary, quip, loading: false } }))
+        setInsightMap(prev => ({ ...prev, [matchId]: { summary, quip, loading: false } }))
       } else {
-        setInsightMap((prev) => ({ ...prev, [matchId]: { summary: '', quip: '', loading: false } }))
+        setInsightMap(prev => ({ ...prev, [matchId]: { summary: '', quip: '', loading: false } }))
         setInsightError(result.error || 'Failed to get insight')
       }
-    } catch (err) {
-      setInsightMap((prev) => ({ ...prev, [matchId]: { summary: '', quip: '', loading: false } }))
+    } catch {
+      setInsightMap(prev => ({ ...prev, [matchId]: { summary: '', quip: '', loading: false } }))
       setInsightError('Network error fetching insight')
     } finally {
       setActiveAgentId(null)
     }
-  }, [matchHistory])
+  }, [matchHistory, walletAddress])
 
   const sendChatMessage = useCallback(async () => {
     if (!chatInput.trim()) return
@@ -714,15 +943,15 @@ export default function Page() {
       content: chatInput.trim(),
       timestamp: new Date().toISOString(),
     }
-    setChatMessages((prev) => [...prev, userMsg])
+    setChatMessages(prev => [...prev, userMsg])
     const question = chatInput.trim()
     setChatInput('')
     setChatLoading(true)
     setChatError('')
     setActiveAgentId(WALLET_AGENT_ID)
     try {
-      const recentTxns = transactions.slice(0, 5).map((t) => ({ type: t.type, amount: t.amount, status: t.status }))
-      const walletContext = `Wallet state: Address ${MOCK_FULL_WALLET}, On-chain balance: ${walletBalance.toFixed(2)} SOL, Escrow balance: ${escrowBalance.toFixed(2)} SOL, Recent transactions: ${JSON.stringify(recentTxns)}. User question: ${question}`
+      const recentTxns = transactions.slice(0, 5).map(t => ({ type: t.type, amount: t.amount, status: t.status }))
+      const walletContext = `Wallet state on Solana Devnet: Address ${walletAddress}, On-chain balance: ${walletBalance.toFixed(4)} SOL, Escrow balance: ${escrowBalance.toFixed(4)} SOL, Network: Devnet (${networkStatus}), Recent transactions: ${JSON.stringify(recentTxns)}. User question: ${question}`
       const result = await callAIAgent(walletContext, WALLET_AGENT_ID)
       if (result.success) {
         const text = result.response?.result?.text || extractText(result.response) || 'I could not process your request.'
@@ -732,39 +961,38 @@ export default function Page() {
           content: text,
           timestamp: new Date().toISOString(),
         }
-        setChatMessages((prev) => [...prev, assistantMsg])
+        setChatMessages(prev => [...prev, assistantMsg])
       } else {
         setChatError(result.error || 'Failed to get response')
       }
-    } catch (err) {
+    } catch {
       setChatError('Network error')
     } finally {
       setChatLoading(false)
       setActiveAgentId(null)
     }
-  }, [chatInput, walletBalance, escrowBalance, transactions])
+  }, [chatInput, walletAddress, walletBalance, escrowBalance, transactions, networkStatus])
 
   // --------------------------------------------------------
   // STATS (Derived)
   // --------------------------------------------------------
   const stats = useMemo(() => {
     const total = matchHistory.length
-    const wins = matchHistory.filter((m) => m.outcome === 'Win').length
-    const losses = matchHistory.filter((m) => m.outcome === 'Loss').length
-    const forfeits = matchHistory.filter((m) => m.outcome === 'Forfeit').length
+    const wins = matchHistory.filter(m => m.outcome === 'Win').length
+    const losses = matchHistory.filter(m => m.outcome === 'Loss').length
+    const forfeits = matchHistory.filter(m => m.outcome === 'Forfeit').length
     const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0'
     let totalEarnings = 0
-    matchHistory.forEach((m) => {
+    matchHistory.forEach(m => {
       if (m.outcome === 'Win') totalEarnings += m.wager * 0.975
       else if (m.outcome === 'Loss') totalEarnings -= m.wager
     })
-    // Current streak
     let streak = 0
     for (const m of matchHistory) {
       if (m.outcome === 'Win') streak++
       else break
     }
-    return { total, wins, losses, forfeits, winRate, totalEarnings: totalEarnings.toFixed(2), streak }
+    return { total, wins, losses, forfeits, winRate, totalEarnings: totalEarnings.toFixed(3), streak }
   }, [matchHistory])
 
   // --------------------------------------------------------
@@ -773,10 +1001,10 @@ export default function Page() {
   const filteredHistory = useMemo(() => {
     let filtered = matchHistory
     if (historyTierFilter !== null) {
-      filtered = filtered.filter((m) => m.tier === historyTierFilter)
+      filtered = filtered.filter(m => m.tier === historyTierFilter)
     }
     if (historyOutcomeFilter !== 'All') {
-      filtered = filtered.filter((m) => m.outcome === historyOutcomeFilter)
+      filtered = filtered.filter(m => m.outcome === historyOutcomeFilter)
     }
     return filtered
   }, [matchHistory, historyTierFilter, historyOutcomeFilter])
@@ -793,15 +1021,46 @@ export default function Page() {
         {!walletConnected && (
           <GlassCard glowColor={NEON_CYAN_GLOW} className="text-center">
             <HiOutlineWallet className="w-10 h-10 mx-auto mb-3" style={{ color: 'hsl(180 100% 50%)' }} />
-            <h3 className="text-lg font-bold tracking-wider mb-1">Connect Your Wallet</h3>
-            <p className="text-xs text-muted-foreground mb-4">Link your Solana wallet to start playing</p>
-            <Button
-              onClick={connectWallet}
-              className="w-full font-bold tracking-wider"
-              style={{ background: 'hsl(180 100% 50%)', color: 'hsl(260 30% 6%)', boxShadow: NEON_CYAN_GLOW }}
-            >
-              Connect Wallet
-            </Button>
+            <h3 className="text-lg font-bold tracking-wider mb-1">Connect Phantom Wallet</h3>
+            <p className="text-xs text-muted-foreground mb-2">Connect your Phantom wallet on Solana Devnet to start playing</p>
+
+            <div className="flex items-center justify-center gap-2 mb-3">
+              <HiGlobeAlt className="w-3 h-3" style={{ color: networkStatus === 'connected' ? 'hsl(120 100% 50%)' : 'hsl(0 100% 55%)' }} />
+              <span className="text-xs" style={{ color: networkStatus === 'connected' ? 'hsl(120 100% 50%)' : 'hsl(0 100% 55%)' }}>
+                Devnet {networkStatus === 'connected' ? 'Online' : networkStatus === 'checking' ? 'Checking...' : 'Offline'}
+              </span>
+            </div>
+
+            {isPhantomInstalled ? (
+              <Button
+                onClick={connectWallet}
+                className="w-full font-bold tracking-wider"
+                style={{ background: 'hsl(180 100% 50%)', color: 'hsl(260 30% 6%)', boxShadow: NEON_CYAN_GLOW }}
+              >
+                <HiLink className="w-4 h-4 mr-2" /> Connect Phantom
+              </Button>
+            ) : (
+              <div>
+                <p className="text-xs mb-2" style={{ color: 'hsl(60 100% 50%)' }}>
+                  Phantom wallet not detected
+                </p>
+                <a
+                  href="https://phantom.app/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-4 py-2 rounded text-sm font-semibold tracking-wider"
+                  style={{ background: 'hsl(300 80% 50%)', color: 'white', boxShadow: NEON_MAGENTA_GLOW }}
+                >
+                  Install Phantom <HiArrowRightOnRectangle className="w-4 h-4" />
+                </a>
+              </div>
+            )}
+
+            {connectionError && (
+              <p className="text-xs mt-2" style={{ color: 'hsl(0 100% 55%)' }}>
+                <HiExclamationTriangle className="w-3 h-3 inline mr-1" />{connectionError}
+              </p>
+            )}
           </GlassCard>
         )}
 
@@ -810,11 +1069,31 @@ export default function Page() {
           <GlassCard glowColor={NEON_CYAN_GLOW}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Escrow Balance</span>
-              <HiBolt className="w-4 h-4" style={{ color: 'hsl(180 100% 50%)' }} />
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => handleAirdrop(1)}
+                  disabled={airdropLoading}
+                  size="sm"
+                  variant="outline"
+                  className="text-xs tracking-wider h-6 px-2"
+                  style={{ borderColor: 'hsl(60 100% 50% / 0.3)', color: 'hsl(60 100% 50%)' }}
+                >
+                  {airdropLoading ? <NeonSpinner size={12} /> : <><HiPlus className="w-3 h-3 mr-1" />Airdrop</>}
+                </Button>
+                <HiBolt className="w-4 h-4" style={{ color: 'hsl(180 100% 50%)' }} />
+              </div>
             </div>
-            <div className="text-3xl font-bold tracking-wider mb-3" style={{ color: 'hsl(180 100% 50%)' }}>
-              {escrowBalance.toFixed(2)} <span className="text-lg text-muted-foreground">SOL</span>
+            {airdropMessage && (
+              <p className="text-xs mb-2" style={{ color: airdropMessage.includes('failed') || airdropMessage.includes('Rate') ? 'hsl(0 100% 55%)' : 'hsl(120 100% 50%)' }}>
+                {airdropMessage}
+              </p>
+            )}
+            <div className="text-3xl font-bold tracking-wider mb-1" style={{ color: 'hsl(180 100% 50%)' }}>
+              {escrowBalance.toFixed(3)} <span className="text-lg text-muted-foreground">SOL</span>
             </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              Wallet: {walletBalance.toFixed(4)} SOL {balanceLoading && <HiArrowPath className="w-3 h-3 inline animate-spin" />}
+            </p>
             <div className="flex gap-2">
               {!showDeposit && !showWithdraw && (
                 <>
@@ -842,12 +1121,14 @@ export default function Page() {
                     type="number"
                     placeholder="SOL amount"
                     value={depositAmount}
-                    onChange={(e) => setDepositAmount(e.target.value)}
+                    onChange={e => setDepositAmount(e.target.value)}
                     className="flex-1 text-sm bg-input border-border"
+                    step="0.01"
+                    min="0.001"
                     style={{ letterSpacing: '0.02em' }}
                   />
-                  <Button onClick={handleDeposit} size="sm" style={{ background: 'hsl(120 100% 50%)', color: 'hsl(260 30% 6%)' }}>
-                    <HiCheck className="w-4 h-4" />
+                  <Button onClick={handleDeposit} disabled={depositLoading} size="sm" style={{ background: 'hsl(120 100% 50%)', color: 'hsl(260 30% 6%)' }}>
+                    {depositLoading ? <NeonSpinner size={14} /> : <HiCheck className="w-4 h-4" />}
                   </Button>
                   <Button onClick={() => { setShowDeposit(false); setDepositAmount('') }} size="sm" variant="ghost">
                     <HiXMark className="w-4 h-4" />
@@ -860,12 +1141,14 @@ export default function Page() {
                     type="number"
                     placeholder="SOL amount"
                     value={withdrawAmount}
-                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    onChange={e => setWithdrawAmount(e.target.value)}
                     className="flex-1 text-sm bg-input border-border"
+                    step="0.01"
+                    min="0.001"
                     style={{ letterSpacing: '0.02em' }}
                   />
-                  <Button onClick={handleWithdraw} size="sm" style={{ background: 'hsl(0 100% 55%)', color: 'white' }}>
-                    <HiCheck className="w-4 h-4" />
+                  <Button onClick={handleWithdraw} disabled={withdrawLoading} size="sm" style={{ background: 'hsl(0 100% 55%)', color: 'white' }}>
+                    {withdrawLoading ? <NeonSpinner size={14} /> : <HiCheck className="w-4 h-4" />}
                   </Button>
                   <Button onClick={() => { setShowWithdraw(false); setWithdrawAmount('') }} size="sm" variant="ghost">
                     <HiXMark className="w-4 h-4" />
@@ -881,7 +1164,7 @@ export default function Page() {
           <GlassCard>
             <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold block mb-3">Wager Tier</span>
             <div className="flex gap-2 flex-wrap">
-              {[1, 2, 5, 10].map((tier) => (
+              {[0.1, 0.5, 1, 2].map(tier => (
                 <button
                   key={tier}
                   onClick={() => { setSelectedTier(tier); setCustomTier('') }}
@@ -901,8 +1184,9 @@ export default function Page() {
                   type="number"
                   placeholder="Custom"
                   value={customTier}
-                  onChange={(e) => { setCustomTier(e.target.value); setSelectedTier(null) }}
+                  onChange={e => { setCustomTier(e.target.value); setSelectedTier(null) }}
                   className="w-20 text-xs bg-input border-border h-9"
+                  step="0.01"
                   style={{ letterSpacing: '0.02em' }}
                 />
                 <span className="text-xs text-muted-foreground">SOL</span>
@@ -919,13 +1203,14 @@ export default function Page() {
                 <HiOutlinePlay className="w-8 h-8" style={{ color: 'hsl(180 100% 50%)' }} />
               </div>
               <p className="text-sm text-muted-foreground tracking-wide">Select a tier and find your match!</p>
+              <p className="text-xs text-muted-foreground mt-1">Playing on Solana Devnet</p>
               {playError && <p className="text-xs mt-2" style={{ color: 'hsl(0 100% 55%)' }}><HiExclamationTriangle className="w-3 h-3 inline mr-1" />{playError}</p>}
             </div>
           )}
 
           {matchState === 'idle' && !walletConnected && (
             <div className="text-center py-8">
-              <p className="text-sm text-muted-foreground tracking-wide">Connect your wallet to start playing</p>
+              <p className="text-sm text-muted-foreground tracking-wide">Connect your Phantom wallet to start playing</p>
             </div>
           )}
 
@@ -940,7 +1225,8 @@ export default function Page() {
           {matchState === 'matched' && (
             <div className="text-center py-4">
               <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Opponent Found</p>
-              <p className="text-lg font-bold tracking-wider mb-1" style={{ color: 'hsl(300 80% 50%)' }}>{opponent}</p>
+              <p className="text-lg font-bold tracking-wider mb-1" style={{ color: 'hsl(300 80% 50%)' }}>{truncateAddress(opponent)}</p>
+              <p className="text-xs text-muted-foreground mb-1 tracking-wide break-all opacity-50">{opponent}</p>
               <p className="text-sm text-muted-foreground mb-4 tracking-wide">Wager: {currentWager} SOL</p>
               <Separator className="mb-4" style={{ background: 'hsl(180 60% 30% / 0.3)' }} />
               <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Choose your side</p>
@@ -993,7 +1279,7 @@ export default function Page() {
                       YOU WIN!
                     </p>
                     <p className="text-sm text-muted-foreground mt-1 tracking-wide">
-                      +{(currentWager * 0.975).toFixed(3)} SOL (after 2.5% fee)
+                      +{(currentWager * 0.975).toFixed(4)} SOL (after 2.5% fee)
                     </p>
                   </div>
                 ) : (
@@ -1099,6 +1385,22 @@ export default function Page() {
           </GlassCard>
         </div>
 
+        {/* Wallet Info */}
+        {walletConnected && (
+          <GlassCard>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Connected Wallet</p>
+                <p className="text-sm font-mono tracking-wider mt-1 break-all" style={{ color: 'hsl(180 100% 70%)' }}>{walletAddress}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Network</p>
+                <p className="text-xs font-semibold" style={{ color: 'hsl(60 100% 50%)' }}>Solana Devnet</p>
+              </div>
+            </div>
+          </GlassCard>
+        )}
+
         {/* Earnings Chart */}
         <GlassCard>
           <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold block mb-3">Earnings Over Time</span>
@@ -1135,7 +1437,7 @@ export default function Page() {
           <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold block mb-3">Recent Activity</span>
           {matchHistory.length > 0 ? (
             <div className="space-y-2">
-              {matchHistory.slice(0, 5).map((match) => (
+              {matchHistory.slice(0, 5).map(match => (
                 <div
                   key={match.id}
                   className="flex items-center justify-between p-2 rounded"
@@ -1183,7 +1485,7 @@ export default function Page() {
                 >
                   All
                 </button>
-                {[1, 2, 5, 10].map((t) => (
+                {[0.1, 0.5, 1, 2].map(t => (
                   <button
                     key={t}
                     onClick={() => setHistoryTierFilter(t)}
@@ -1202,7 +1504,7 @@ export default function Page() {
             <div>
               <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold block mb-2">Outcome</span>
               <div className="flex gap-2 flex-wrap">
-                {(['All', 'Win', 'Loss', 'Forfeit'] as const).map((o) => (
+                {(['All', 'Win', 'Loss', 'Forfeit'] as const).map(o => (
                   <button
                     key={o}
                     onClick={() => setHistoryOutcomeFilter(o === 'All' ? 'All' : o as MatchOutcome)}
@@ -1224,7 +1526,7 @@ export default function Page() {
         {/* Match Cards */}
         {filteredHistory.length > 0 ? (
           <div className="space-y-3">
-            {filteredHistory.map((match) => {
+            {filteredHistory.map(match => {
               const insight = insightMap[match.id]
               return (
                 <div key={match.id}>
@@ -1251,11 +1553,7 @@ export default function Page() {
                         className="text-xs tracking-wider w-full"
                         style={{ borderColor: 'hsl(60 100% 50% / 0.3)', color: 'hsl(60 100% 50%)' }}
                       >
-                        {insight?.loading ? (
-                          <NeonSpinner size={14} />
-                        ) : (
-                          <HiLightBulb className="w-3 h-3 mr-1" />
-                        )}
+                        {insight?.loading ? <NeonSpinner size={14} /> : <HiLightBulb className="w-3 h-3 mr-1" />}
                         Get Insight
                       </Button>
                     </div>
@@ -1316,15 +1614,71 @@ export default function Page() {
         <div className="grid grid-cols-2 gap-3">
           <GlassCard glowColor={NEON_CYAN_GLOW}>
             <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">On-Chain</p>
-            <p className="text-xl font-bold tracking-wider mt-1" style={{ color: 'hsl(180 100% 50%)' }}>{walletBalance.toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">SOL</p>
+            <p className="text-xl font-bold tracking-wider mt-1" style={{ color: 'hsl(180 100% 50%)' }}>
+              {walletBalance.toFixed(4)}
+              {balanceLoading && <HiArrowPath className="w-3 h-3 inline ml-1 animate-spin" />}
+            </p>
+            <p className="text-xs text-muted-foreground">SOL (Devnet)</p>
           </GlassCard>
           <GlassCard glowColor={NEON_MAGENTA_GLOW}>
             <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Escrow</p>
-            <p className="text-xl font-bold tracking-wider mt-1" style={{ color: 'hsl(300 80% 50%)' }}>{escrowBalance.toFixed(2)}</p>
+            <p className="text-xl font-bold tracking-wider mt-1" style={{ color: 'hsl(300 80% 50%)' }}>{escrowBalance.toFixed(4)}</p>
             <p className="text-xs text-muted-foreground">SOL</p>
           </GlassCard>
         </div>
+
+        {/* Wallet Address & Network */}
+        {walletConnected && (
+          <GlassCard>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Wallet Address</span>
+                <Badge className="text-xs" style={{ background: 'hsl(60 100% 50% / 0.15)', color: 'hsl(60 100% 60%)', border: '1px solid hsl(60 100% 50% / 0.3)' }}>
+                  Devnet
+                </Badge>
+              </div>
+              <p className="text-xs font-mono break-all" style={{ color: 'hsl(180 100% 70%)' }}>{walletAddress}</p>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => handleAirdrop(1)}
+                  disabled={airdropLoading}
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 text-xs tracking-wider"
+                  style={{ borderColor: 'hsl(60 100% 50% / 0.3)', color: 'hsl(60 100% 50%)' }}
+                >
+                  {airdropLoading ? <NeonSpinner size={12} /> : <><HiPlus className="w-3 h-3 mr-1" />Airdrop 1 SOL</>}
+                </Button>
+                <Button
+                  onClick={() => handleAirdrop(2)}
+                  disabled={airdropLoading}
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 text-xs tracking-wider"
+                  style={{ borderColor: 'hsl(60 100% 50% / 0.3)', color: 'hsl(60 100% 50%)' }}
+                >
+                  {airdropLoading ? <NeonSpinner size={12} /> : <><HiPlus className="w-3 h-3 mr-1" />Airdrop 2 SOL</>}
+                </Button>
+              </div>
+              {airdropMessage && (
+                <p className="text-xs" style={{ color: airdropMessage.includes('failed') || airdropMessage.includes('Rate') ? 'hsl(0 100% 55%)' : 'hsl(120 100% 50%)' }}>
+                  {airdropMessage}
+                </p>
+              )}
+              <Button
+                onClick={fetchBalance}
+                disabled={balanceLoading}
+                size="sm"
+                variant="outline"
+                className="w-full text-xs tracking-wider"
+                style={{ borderColor: 'hsl(180 60% 30% / 0.5)', color: 'hsl(180 100% 70%)' }}
+              >
+                <HiArrowPath className={cn("w-3 h-3 mr-1", balanceLoading && "animate-spin")} />
+                Refresh Balance
+              </Button>
+            </div>
+          </GlassCard>
+        )}
 
         {/* Quick Actions */}
         <div className="flex gap-2">
@@ -1352,7 +1706,7 @@ export default function Page() {
           {transactions.length > 0 ? (
             <ScrollArea className="h-48">
               <div className="space-y-2 pr-2">
-                {transactions.map((txn) => (
+                {transactions.map(txn => (
                   <div
                     key={txn.id}
                     className="flex items-center justify-between p-2 rounded"
@@ -1383,7 +1737,7 @@ export default function Page() {
                         className="text-xs font-bold tracking-wider"
                         style={{ color: txn.amount >= 0 ? 'hsl(120 100% 50%)' : 'hsl(0 100% 55%)' }}
                       >
-                        {txn.amount >= 0 ? '+' : ''}{txn.amount.toFixed(2)} SOL
+                        {txn.amount >= 0 ? '+' : ''}{txn.amount.toFixed(4)} SOL
                       </p>
                       <TxnStatusBadge status={txn.status} />
                     </div>
@@ -1403,7 +1757,6 @@ export default function Page() {
             <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: 'hsl(180 100% 50%)' }}>Wallet Assistant</span>
           </div>
 
-          {/* Chat Messages */}
           <div
             ref={chatScrollRef}
             className="h-40 overflow-y-auto mb-3 space-y-2 pr-1"
@@ -1411,10 +1764,12 @@ export default function Page() {
           >
             {chatMessages.length === 0 && (
               <div className="flex items-center justify-center h-full">
-                <p className="text-xs text-muted-foreground tracking-wide text-center">Ask me anything about your wallet, balances, or transactions</p>
+                <p className="text-xs text-muted-foreground tracking-wide text-center">
+                  Ask me anything about your Solana Devnet wallet, balances, or transactions
+                </p>
               </div>
             )}
-            {chatMessages.map((msg) => (
+            {chatMessages.map(msg => (
               <div
                 key={msg.id}
                 className={cn(
@@ -1444,12 +1799,11 @@ export default function Page() {
             </p>
           )}
 
-          {/* Chat Input */}
           <div className="flex gap-2">
             <Input
               value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage() } }}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage() } }}
               placeholder="Ask about your wallet..."
               className="flex-1 text-xs bg-input border-border"
               style={{ letterSpacing: '0.02em' }}
@@ -1512,32 +1866,38 @@ export default function Page() {
             >
               SF
             </div>
-            <span className="text-sm font-bold tracking-wider" style={{ color: 'hsl(180 100% 50%)' }}>SolFlip</span>
+            <div>
+              <span className="text-sm font-bold tracking-wider block" style={{ color: 'hsl(180 100% 50%)' }}>SolFlip</span>
+              <span className="text-xs text-muted-foreground tracking-wide">Devnet</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Sample Data Toggle */}
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="sample-toggle" className="text-xs text-muted-foreground tracking-wide cursor-pointer">Sample</Label>
-              <Switch
-                id="sample-toggle"
-                checked={showSample}
-                onCheckedChange={setShowSample}
-                className="data-[state=checked]:bg-primary"
-              />
-            </div>
-
             {walletConnected && (
               <>
-                <Separator orientation="vertical" className="h-5" style={{ background: 'hsl(180 60% 30% / 0.3)' }} />
                 <div className="text-right">
-                  <p className="text-xs text-muted-foreground tracking-wider">{MOCK_WALLET}</p>
-                  <p className="text-xs font-semibold tracking-wider" style={{ color: 'hsl(180 100% 50%)' }}>{walletBalance.toFixed(2)} SOL</p>
+                  <p className="text-xs text-muted-foreground tracking-wider">{truncateAddress(walletAddress)}</p>
+                  <p className="text-xs font-semibold tracking-wider" style={{ color: 'hsl(180 100% 50%)' }}>
+                    {walletBalance.toFixed(4)} SOL
+                  </p>
                 </div>
                 <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full" style={{ background: 'hsl(120 100% 50%)', boxShadow: NEON_GREEN_GLOW }} />
-                  <HiSignal className="w-3 h-3" style={{ color: 'hsl(120 100% 50%)' }} />
+                  <div
+                    className="w-2 h-2 rounded-full"
+                    style={{
+                      background: networkStatus === 'connected' ? 'hsl(120 100% 50%)' : networkStatus === 'checking' ? 'hsl(60 100% 50%)' : 'hsl(0 100% 55%)',
+                      boxShadow: networkStatus === 'connected' ? NEON_GREEN_GLOW : 'none',
+                    }}
+                  />
+                  <HiSignal className="w-3 h-3" style={{ color: networkStatus === 'connected' ? 'hsl(120 100% 50%)' : 'hsl(0 100% 55%)' }} />
                 </div>
+                <button
+                  onClick={disconnectWallet}
+                  className="p-1 rounded hover:bg-muted/20 transition-colors"
+                  title="Disconnect wallet"
+                >
+                  <HiArrowRightOnRectangle className="w-4 h-4 text-muted-foreground" />
+                </button>
               </>
             )}
           </div>
@@ -1559,7 +1919,7 @@ export default function Page() {
             borderTop: '1px solid hsl(180 60% 30% / 0.2)',
           }}
         >
-          {tabs.map((tab) => {
+          {tabs.map(tab => {
             const isActive = activeTab === tab.id
             return (
               <button
@@ -1584,7 +1944,7 @@ export default function Page() {
           })}
         </nav>
 
-        {/* Coin flip animation keyframes - inline via a hidden element trick */}
+        {/* Coin flip animation keyframes */}
         <div
           aria-hidden="true"
           className="hidden"
