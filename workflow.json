@@ -1,0 +1,85 @@
+{
+  "nodes": [
+    {
+      "id": "input_node",
+      "type": "Input",
+      "label": "User Input",
+      "nodeCategory": "input"
+    },
+    {
+      "id": "wallet_agent",
+      "type": "Agent",
+      "label": "Wallet Assistant Agent",
+      "nodeCategory": "agent"
+    },
+    {
+      "id": "fairness_agent",
+      "type": "Agent",
+      "label": "Fairness Verifier Agent",
+      "nodeCategory": "agent"
+    },
+    {
+      "id": "match_agent",
+      "type": "Agent",
+      "label": "Match Insight Agent",
+      "nodeCategory": "agent"
+    }
+  ],
+  "edges": [
+    {
+      "source": "input_node",
+      "target": "wallet_agent"
+    },
+    {
+      "source": "input_node",
+      "target": "fairness_agent"
+    },
+    {
+      "source": "input_node",
+      "target": "match_agent"
+    }
+  ],
+  "agents": [
+    {
+      "node_id": "wallet_agent",
+      "agent_id": "699bfdccfb62c45cbd3beb71",
+      "name": "Wallet Assistant Agent",
+      "description": "Answers player questions about SOL balance, escrow status, deposit/withdrawal history, and wallet health in a casual, playful tone. Receives wallet state as prompt context from the frontend.",
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "temperature": 0.5,
+      "top_p": 0.95,
+      "response_schema": {
+        "text": "string"
+      }
+    },
+    {
+      "node_id": "fairness_agent",
+      "agent_id": "699bfdcc445882528cc4bd5a",
+      "name": "Fairness Verifier Agent",
+      "description": "Explains the commit-reveal proof for a specific duel — breaks down the SHA256 commit hash, reveal value, and on-chain verification in simple, casual language so players trust the outcome.",
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "temperature": 0.4,
+      "top_p": 0.9,
+      "response_schema": {
+        "explanation": "string",
+        "verdict": "string"
+      }
+    },
+    {
+      "node_id": "match_agent",
+      "agent_id": "699bfdcc4781b21fa6458747",
+      "name": "Match Insight Agent",
+      "description": "Generates a fun, casual post-duel summary for a completed match — includes wager amount, outcome, streak context, and a playful quip. Receives match data as prompt context.",
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "response_schema": {
+        "summary": "string",
+        "quip": "string"
+      }
+    }
+  ]
+}

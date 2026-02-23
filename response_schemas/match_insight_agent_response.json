@@ -1,0 +1,16 @@
+{
+  "agent_name": "Match Insight Agent",
+  "agent_id": "699bfdcc4781b21fa6458747",
+  "description": "Generates a fun, casual post-duel summary for a completed match \u2014 includes wager amount, outcome, streak context, and a playful quip. Receives match data as prompt context.",
+  "agent_type": "json",
+  "accessor": "result",
+  "auto_generated": true,
+  "response_schema": {
+    "summary": "string",
+    "quip": "string"
+  },
+  "example_response": {
+    "summary": "The match insight summary",
+    "quip": "A short playful one-liner"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "agent_name": "Wallet Assistant Agent",
+  "agent_id": "699bfdccfb62c45cbd3beb71",
+  "description": "Answers player questions about SOL balance, escrow status, deposit/withdrawal history, and wallet health in a casual, playful tone. Receives wallet state as prompt context from the frontend.",
+  "agent_type": "json",
+  "accessor": "result",
+  "auto_generated": true,
+  "response_schema": {
+    "text": "string"
+  },
+  "example_response": {
+    "text": "The assistant's response message"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "status": "complete",
+  "agents": {
+    "wallet_agent": {
+      "agent_id": "699bfdccfb62c45cbd3beb71",
+      "name": "Wallet Assistant Agent",
+      "node_id": "wallet_agent",
+      "type": "text",
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "temperature": 0.5,
+      "top_p": 0.95,
+      "has_tools": false,
+      "has_image_output": false,
+      "has_voice": false,
+      "has_file_output": false,
+      "response_schema": {
+        "text": "string"
+      }
+    },
+    "fairness_agent": {
+      "agent_id": "699bfdcc445882528cc4bd5a",
+      "name": "Fairness Verifier Agent",
+      "node_id": "fairness_agent",
+      "type": "text",
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "temperature": 0.4,
+      "top_p": 0.9,
+      "has_tools": false,
+      "has_image_output": false,
+      "has_voice": false,
+      "has_file_output": false,
+      "response_schema": {
+        "explanation": "string",
+        "verdict": "string"
+      }
+    },
+    "match_agent": {
+      "agent_id": "699bfdcc4781b21fa6458747",
+      "name": "Match Insight Agent",
+      "node_id": "match_agent",
+      "type": "text",
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "has_tools": false,
+      "has_image_output": false,
+      "has_voice": false,
+      "has_file_output": false,
+      "response_schema": {
+        "summary": "string",
+        "quip": "string"
+      }
+    }
+  },
+  "workflow_pattern": "multiple_independent",
+  "total_agents": 3
+}

@@ -1,0 +1,16 @@
+{
+  "agent_name": "Fairness Verifier Agent",
+  "agent_id": "699bfdcc445882528cc4bd5a",
+  "description": "Explains the commit-reveal proof for a specific duel \u2014 breaks down the SHA256 commit hash, reveal value, and on-chain verification in simple, casual language so players trust the outcome.",
+  "agent_type": "json",
+  "accessor": "result",
+  "auto_generated": true,
+  "response_schema": {
+    "explanation": "string",
+    "verdict": "string"
+  },
+  "example_response": {
+    "explanation": "The fairness verification explanation",
+    "verdict": "Short verdict like Provably Fair or Verified"
+  }
+}
