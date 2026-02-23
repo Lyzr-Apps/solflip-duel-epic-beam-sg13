@@ -1,0 +1,266 @@
+{
+  "version": "0.1.0",
+  "name": "solflip",
+  "instructions": [
+    {
+      "name": "initializePlatform",
+      "accounts": [
+        { "name": "platform", "isMut": true, "isSigner": false },
+        { "name": "treasury", "isMut": true, "isSigner": false },
+        { "name": "authority", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "deposit",
+      "accounts": [
+        { "name": "escrow", "isMut": true, "isSigner": false },
+        { "name": "player", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "amount", "type": "u64" }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "accounts": [
+        { "name": "escrow", "isMut": true, "isSigner": false },
+        { "name": "player", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "amount", "type": "u64" }
+      ]
+    },
+    {
+      "name": "createMatch",
+      "accounts": [
+        { "name": "matchAccount", "isMut": true, "isSigner": false },
+        { "name": "playerEscrow", "isMut": true, "isSigner": false },
+        { "name": "player", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "wagerLamports", "type": "u64" },
+        { "name": "commitHash", "type": { "array": ["u8", 32] } }
+      ]
+    },
+    {
+      "name": "joinMatch",
+      "accounts": [
+        { "name": "matchAccount", "isMut": true, "isSigner": false },
+        { "name": "playerEscrow", "isMut": true, "isSigner": false },
+        { "name": "player", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "reveal",
+      "accounts": [
+        { "name": "matchAccount", "isMut": true, "isSigner": false },
+        { "name": "escrowA", "isMut": true, "isSigner": false },
+        { "name": "escrowB", "isMut": true, "isSigner": false },
+        { "name": "platform", "isMut": true, "isSigner": false },
+        { "name": "treasury", "isMut": true, "isSigner": false },
+        { "name": "player", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "choice", "type": "u8" },
+        { "name": "nonce", "type": { "array": ["u8", 32] } }
+      ]
+    },
+    {
+      "name": "claimTimeout",
+      "accounts": [
+        { "name": "matchAccount", "isMut": true, "isSigner": false },
+        { "name": "escrowA", "isMut": true, "isSigner": false },
+        { "name": "escrowB", "isMut": true, "isSigner": false },
+        { "name": "player", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancelMatch",
+      "accounts": [
+        { "name": "matchAccount", "isMut": true, "isSigner": false },
+        { "name": "playerEscrow", "isMut": true, "isSigner": false },
+        { "name": "player", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "getEscrowBalance",
+      "accounts": [
+        { "name": "escrow", "isMut": false, "isSigner": false },
+        { "name": "player", "isMut": false, "isSigner": true }
+      ],
+      "args": [],
+      "returns": "u64"
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Platform",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "authority", "type": "publicKey" },
+          { "name": "treasury", "type": "publicKey" },
+          { "name": "totalMatches", "type": "u64" },
+          { "name": "totalVolumeLamports", "type": "u64" },
+          { "name": "totalFeesCollected", "type": "u64" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "Escrow",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "owner", "type": "publicKey" },
+          { "name": "balance", "type": "u64" },
+          { "name": "locked", "type": "bool" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "MatchAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "playerA", "type": "publicKey" },
+          { "name": "playerB", "type": "publicKey" },
+          { "name": "wager", "type": "u64" },
+          { "name": "commitHash", "type": { "array": ["u8", 32] } },
+          { "name": "state", "type": { "defined": "MatchState" } },
+          { "name": "createdAt", "type": "i64" },
+          { "name": "revealDeadline", "type": "i64" },
+          { "name": "choiceA", "type": "u8" },
+          { "name": "nonceA", "type": { "array": ["u8", 32] } },
+          { "name": "result", "type": { "defined": "MatchResult" } },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "MatchState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          { "name": "WaitingForOpponent" },
+          { "name": "CommitPhase" },
+          { "name": "Completed" },
+          { "name": "Cancelled" }
+        ]
+      }
+    },
+    {
+      "name": "MatchResult",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          { "name": "Pending" },
+          { "name": "PlayerAWins" },
+          { "name": "PlayerBWins" },
+          { "name": "PlayerBWinsByForfeit" }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "name": "DepositEvent",
+      "fields": [
+        { "name": "player", "type": "publicKey", "index": false },
+        { "name": "amount", "type": "u64", "index": false },
+        { "name": "newBalance", "type": "u64", "index": false }
+      ]
+    },
+    {
+      "name": "WithdrawEvent",
+      "fields": [
+        { "name": "player", "type": "publicKey", "index": false },
+        { "name": "amount", "type": "u64", "index": false },
+        { "name": "newBalance", "type": "u64", "index": false }
+      ]
+    },
+    {
+      "name": "MatchCreatedEvent",
+      "fields": [
+        { "name": "matchId", "type": "publicKey", "index": false },
+        { "name": "playerA", "type": "publicKey", "index": false },
+        { "name": "wager", "type": "u64", "index": false }
+      ]
+    },
+    {
+      "name": "MatchJoinedEvent",
+      "fields": [
+        { "name": "matchId", "type": "publicKey", "index": false },
+        { "name": "playerA", "type": "publicKey", "index": false },
+        { "name": "playerB", "type": "publicKey", "index": false },
+        { "name": "wager", "type": "u64", "index": false }
+      ]
+    },
+    {
+      "name": "MatchCompletedEvent",
+      "fields": [
+        { "name": "matchId", "type": "publicKey", "index": false },
+        { "name": "playerA", "type": "publicKey", "index": false },
+        { "name": "playerB", "type": "publicKey", "index": false },
+        { "name": "winner", "type": "publicKey", "index": false },
+        { "name": "wager", "type": "u64", "index": false },
+        { "name": "payout", "type": "u64", "index": false },
+        { "name": "fee", "type": "u64", "index": false },
+        { "name": "coinResult", "type": "u8", "index": false },
+        { "name": "choiceA", "type": "u8", "index": false },
+        { "name": "commitHash", "type": { "array": ["u8", 32] }, "index": false },
+        { "name": "nonce", "type": { "array": ["u8", 32] }, "index": false }
+      ]
+    },
+    {
+      "name": "ForfeitEvent",
+      "fields": [
+        { "name": "matchId", "type": "publicKey", "index": false },
+        { "name": "forfeiter", "type": "publicKey", "index": false },
+        { "name": "winner", "type": "publicKey", "index": false },
+        { "name": "amount", "type": "u64", "index": false }
+      ]
+    },
+    {
+      "name": "MatchCancelledEvent",
+      "fields": [
+        { "name": "matchId", "type": "publicKey", "index": false },
+        { "name": "player", "type": "publicKey", "index": false },
+        { "name": "refund", "type": "u64", "index": false }
+      ]
+    }
+  ],
+  "errors": [
+    { "code": 6000, "name": "InvalidAmount", "msg": "Invalid amount" },
+    { "code": 6001, "name": "InsufficientFunds", "msg": "Insufficient funds in escrow" },
+    { "code": 6002, "name": "FundsLocked", "msg": "Funds are locked in an active match" },
+    { "code": 6003, "name": "Unauthorized", "msg": "Unauthorized: you don't own this account" },
+    { "code": 6004, "name": "InvalidTier", "msg": "Invalid wager tier" },
+    { "code": 6005, "name": "InvalidMatchState", "msg": "Invalid match state for this operation" },
+    { "code": 6006, "name": "CannotPlaySelf", "msg": "Cannot play against yourself" },
+    { "code": 6007, "name": "InvalidChoice", "msg": "Invalid choice: must be 0 (Heads) or 1 (Tails)" },
+    { "code": 6008, "name": "CommitHashMismatch", "msg": "Commit hash does not match reveal" },
+    { "code": 6009, "name": "RevealNotTimedOut", "msg": "Reveal timeout has not expired yet" },
+    { "code": 6010, "name": "Overflow", "msg": "Arithmetic overflow" },
+    { "code": 6011, "name": "Underflow", "msg": "Arithmetic underflow" },
+    { "code": 6012, "name": "InvalidTreasury", "msg": "Invalid treasury account" }
+  ],
+  "metadata": {
+    "address": "F1ipXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+  }
+}

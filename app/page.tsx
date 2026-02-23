@@ -43,6 +43,22 @@ import {
   AreaChart,
 } from 'recharts'
 
+// Smart Contract Client — uncomment when program is deployed on devnet:
+// import {
+//   deposit as onChainDeposit,
+//   withdraw as onChainWithdraw,
+//   createMatch as onChainCreateMatch,
+//   reveal as onChainReveal,
+//   claimTimeout as onChainClaimTimeout,
+//   cancelMatch as onChainCancelMatch,
+//   fetchEscrowAccount,
+//   createCommitHash,
+//   generateNonce,
+//   verifyCommitHash,
+//   getExplorerUrl,
+//   SOLFLIP_CONFIG,
+// } from '@/lib/solflipClient'
+
 // ============================================================
 // AGENT IDS
 // ============================================================
@@ -722,8 +738,18 @@ export default function Page() {
     if (isNaN(amt) || amt <= 0 || amt > walletBalance) return
     setDepositLoading(true)
     try {
-      // In a production app, this would be an on-chain transfer to an escrow PDA
-      // For devnet demo, we simulate the escrow locally while tracking real wallet balance
+      // =============================================================
+      // ON-CHAIN DEPOSIT (uncomment after deploying the smart contract)
+      // =============================================================
+      // const sig = await onChainDeposit(phantomProvider as any, amt)
+      // console.log('Deposit tx:', getExplorerUrl(sig))
+      // const escrow = await fetchEscrowAccount(new PublicKey(walletAddress))
+      // setEscrowBalance(escrow?.balance ?? 0)
+      // await fetchBalance()  // Refresh on-chain wallet balance
+      //
+      // =============================================================
+      // SIMULATED DEPOSIT (current - tracks escrow locally)
+      // =============================================================
       setEscrowBalance(prev => prev + amt)
       setWalletBalance(prev => prev - amt)
       setTransactions(prev => [{
@@ -746,6 +772,18 @@ export default function Page() {
     if (isNaN(amt) || amt <= 0 || amt > escrowBalance) return
     setWithdrawLoading(true)
     try {
+      // =============================================================
+      // ON-CHAIN WITHDRAW (uncomment after deploying the smart contract)
+      // =============================================================
+      // const sig = await onChainWithdraw(phantomProvider as any, amt)
+      // console.log('Withdraw tx:', getExplorerUrl(sig))
+      // const escrow = await fetchEscrowAccount(new PublicKey(walletAddress))
+      // setEscrowBalance(escrow?.balance ?? 0)
+      // await fetchBalance()
+      //
+      // =============================================================
+      // SIMULATED WITHDRAW (current - tracks escrow locally)
+      // =============================================================
       setEscrowBalance(prev => prev - amt)
       setWalletBalance(prev => prev + amt)
       setTransactions(prev => [{
